@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpaTeX — Text-Based 3D Diagrams</title>
+    <meta name="description"
+        content="A text-based 3D diagram library similar to Mermaid, but for interactive Three.js 3D scenes.">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <style>
+        /* ── Reset & Base ─────────────────────────────────────── */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --border: #2a2d3a;
+            --text: #e4e4e7;
+            --text-muted: #9ca3af;
+            --accent: #6366f1;
+            --accent-glow: rgba(99, 102, 241, 0.3);
+            --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+
+        .page-header {
+            max-width: 900px;
+            margin: 0 auto 2rem;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+            background: linear-gradient(135deg, #6366f1, #a78bfa, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* ── Canvas Container ─────────────────────────────────── */
+        .spatex-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            margin: 1.5rem auto;
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow:
+                0 0 0 1px rgba(99, 102, 241, 0.08),
+                0 8px 32px rgba(0, 0, 0, 0.5),
+                0 0 80px rgba(99, 102, 241, 0.04);
+            background: var(--surface);
+            transition: box-shadow 0.3s ease;
+        }
+
+        .spatex-container:hover {
+            box-shadow:
+                0 0 0 1px rgba(99, 102, 241, 0.15),
+                0 8px 40px rgba(0, 0, 0, 0.6),
+                0 0 100px rgba(99, 102, 241, 0.08);
+        }
+
+        .spatex-container canvas {
+            display: block;
+            width: 100% !important;
+            height: 500px !important;
+            cursor: grab;
+        }
+
+        .spatex-container canvas:active {
+            cursor: grabbing;
+        }
+
+        .spatex-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: rgba(15, 17, 23, 0.8);
+            backdrop-filter: blur(8px);
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            font-family: var(--font-mono);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            pointer-events: none;
+            z-index: 10;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .spatex-controls-hint {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 17, 23, 0.75);
+            backdrop-filter: blur(8px);
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            font-family: var(--font-sans);
+            padding: 4px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0.8;
+            transition: opacity 0.5s ease;
+        }
+
+        .spatex-container:active .spatex-controls-hint {
+            opacity: 0;
+        }
+
+        /* ── Label overlay (CSS2D-style) ──────────────────────── */
+        .spatex-label-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: 5;
+        }
+
+        /* ── Fallback code block styling ──────────────────────── */
+        pre {
+            max-width: 900px;
+            margin: 1rem auto;
+        }
+
+        pre code.language-3d {
+            display: block;
+            background: var(--surface);
+            color: var(--text);
+            padding: 1.5rem;
+            border-radius: 10px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            border: 1px solid var(--border);
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="page-header">
+        <h1>SpaTeX</h1>
+        <p class="subtitle">Text-based 3D diagrams — like Mermaid, but for Three.js scenes.</p>
+    </div>
+
+    <!-- ── Test Diagram: Full Example ──────────────────────── -->
+    <pre><code class="language-3d">
+scene {
+  background: #f0f0f0;
+  fog: false;
+
+  camera {
+    angle: 45 30;
+    zoom: 1.5;
+    target: 0 0 0;
+  }
+
+  cylinder myBase {
+    pos: 0 0 0;
+    radius: 2;
+    height: 0.5;
+    color: gray;
+    shadow: true;
+    label: "Base";
+  }
+
+  sphere myBall {
+    pos: 0 2 0;
+    radius: 1;
+    color: steelblue;
+    shadow: true;
+    label: "Ball";
+  }
+
+  arrow {
+    from: myBase;
+    to: myBall;
+    color: coral;
+    label: "supports";
+  }
+}
+  </code></pre>
+
+    <!-- ── Test Diagram 2: All shapes showcase ─────────────── -->
+    <pre><code class="language-3d">
+scene {
+  background: #1a1a2e;
+  fog: false;
+
+  camera {
+    angle: 35 25;
+    zoom: 1.2;
+    target: 0 1 0;
+  }
+
+  /* 3D Shapes row */
+  cube myCube {
+    pos: -8 0.5 0;
+    size: 1;
+    color: #e74c3c;
+    shadow: true;
+    label: "Cube";
+  }
+
+  cuboid myCuboid {
+    pos: -5.5 0.5 0;
+    width: 1.5;
+    height: 1;
+    depth: 0.8;
+    color: #e67e22;
+    shadow: true;
+    label: "Cuboid";
+  }
+
+  sphere mySphere {
+    pos: -3 1 0;
+    radius: 0.8;
+    color: #f1c40f;
+    shadow: true;
+    label: "Sphere";
+  }
+
+  hemisphere myHemi {
+    pos: -0.5 0 0;
+    radius: 0.8;
+    color: #2ecc71;
+    shadow: true;
+    label: "Hemisphere";
+  }
+
+  cylinder myCyl {
+    pos: 2 0.75 0;
+    radius: 0.6;
+    height: 1.5;
+    color: #3498db;
+    shadow: true;
+    label: "Cylinder";
+  }
+
+  cone myCone {
+    pos: 4.5 0.75 0;
+    radius: 0.7;
+    height: 1.5;
+    color: #9b59b6;
+    shadow: true;
+    label: "Cone";
+  }
+
+  hollow_cylinder myHC {
+    pos: 7 0.5 0;
+    radius: 0.8;
+    inner_radius: 0.5;
+    height: 1;
+    color: #1abc9c;
+    shadow: true;
+    label: "HollowCyl";
+  }
+
+  hollow_cone myHCone {
+    pos: 9.5 0.75 0;
+    radius: 0.8;
+    inner_radius: 0.4;
+    height: 1.5;
+    color: #e84393;
+    shadow: true;
+    label: "HollowCone";
+  }
+
+  /* 2D shapes row */
+  square mySq {
+    pos: -7 0 4;
+    size: 1.2;
+    color: #fd79a8;
+    label: "Square";
+  }
+
+  rectangle myRect {
+    pos: -4 0 4;
+    width: 1.8;
+    height: 1;
+    color: #a29bfe;
+    label: "Rectangle";
+  }
+
+  circle myCirc {
+    pos: -1 0 4;
+    radius: 0.7;
+    color: #55efc4;
+    label: "Circle";
+  }
+
+  semicircle mySemiC {
+    pos: 2 0 4;
+    radius: 0.7;
+    color: #ffeaa7;
+    label: "Semicircle";
+  }
+
+  triangle myTri {
+    pos: 5 0 4;
+    size: 1.2;
+    color: #fab1a0;
+    label: "Triangle";
+  }
+
+  plane myFloor {
+    pos: 0 -0.01 2;
+    width: 24;
+    height: 12;
+    color: #2d3436;
+    opacity: 0.3;
+    rotate: -90 0 0;
+  }
+
+  /* Connectors */
+  arrow {
+    from: myCube;
+    to: myCuboid;
+    color: #e74c3c;
+  }
+
+  line {
+    from: mySphere;
+    to: myCyl;
+    color: #f1c40f;
+    label: "link";
+  }
+
+  /* Group example */
+  group myGroup {
+    pos: 0 3 -3;
+
+    cube groupCube1 {
+      pos: -1 0 0;
+      size: 0.5;
+      color: #00cec9;
+      label: "G1";
+    }
+
+    cube groupCube2 {
+      pos: 1 0 0;
+      size: 0.5;
+      color: #6c5ce7;
+      label: "G2";
+    }
+
+    arrow {
+      from: groupCube1;
+      to: groupCube2;
+      color: white;
+      label: "grouped";
+    }
+  }
+}
+  </code></pre>
+
+    <!-- ══════════════════════════════════════════════════════════
+       THREE.JS from CDN
+       ══════════════════════════════════════════════════════════ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- ══════════════════════════════════════════════════════════
+       SPATEX ENGINE — Parser + Renderer
+       ══════════════════════════════════════════════════════════ -->
+    <script>
+        /**
+         * ╔══════════════════════════════════════════════════════════╗
+         * ║  SPATEX ENGINE                                          ║
+         * ║  Parser: DSL → JSON scene tree                          ║
+         * ║  Renderer: JSON scene tree → Three.js interactive scene ║
+         * ╚══════════════════════════════════════════════════════════╝
+         */
+
+        const SpaTeX = (() => {
+
+            // ──────────────────────────────────────────────────────────
+            //  DEFAULTS
+            // ──────────────────────────────────────────────────────────
+
+            const SHAPE_DEFAULTS = {
+                _universal: {
+                    pos: [0, 0, 0],
+                    rotate: [0, 0, 0],
+                    color: '#cccccc',
+                    opacity: 1,
+                    wireframe: false,
+                    shadow: false,
+                    label: null,
+                },
+                cube: { size: 1 },
+                cuboid: { width: 1, height: 1, depth: 1 },
+                sphere: { radius: 1 },
+                hemisphere: { radius: 1 },
+                cylinder: { radius: 1, height: 2 },
+                hollow_cylinder: { radius: 1, inner_radius: 0.5, height: 2, thickness: null },
+                cone: { radius: 1, height: 2 },
+                hollow_cone: { radius: 1, inner_radius: 0.5, height: 2, thickness: null },
+                square: { size: 1 },
+                rectangle: { width: 2, height: 1 },
+                circle: { radius: 1 },
+                semicircle: { radius: 1 },
+                triangle: { size: 1 },
+                plane: { width: 10, height: 10 },
+            };
+
+            const SCENE_DEFAULTS = { background: '#000000', fog: false };
+            const CAMERA_DEFAULTS = { angle: [45, 30], zoom: 1, target: [0, 0, 0] };
+
+            const CONNECTOR_TYPES = new Set(['arrow', 'line']);
+            const ALL_SHAPE_TYPES = new Set(Object.keys(SHAPE_DEFAULTS).filter(k => k !== '_universal'));
+
+            // ──────────────────────────────────────────────────────────
+            //  TOKENIZER
+            // ──────────────────────────────────────────────────────────
+
+            function tokenize(src) {
+                const tokens = [];
+                let i = 0;
+                const len = src.length;
+
+                while (i < len) {
+                    const ch = src[i];
+                    if (/\s/.test(ch)) { i++; continue; }
+
+                    // Block comments: /* ... */
+                    if (ch === '/' && src[i + 1] === '*') {
+                        i += 2;
+                        while (i < len && !(src[i] === '*' && src[i + 1] === '/')) i++;
+                        i += 2; continue;
+                    }
+                    // Line comments: // ...
+                    if (ch === '/' && src[i + 1] === '/') {
+                        while (i < len && src[i] !== '\n') i++;
+                        continue;
+                    }
+
+                    if (ch === '{') { tokens.push({ type: 'LBRACE', value: '{' }); i++; continue; }
+                    if (ch === '}') { tokens.push({ type: 'RBRACE', value: '}' }); i++; continue; }
+                    if (ch === ':') { tokens.push({ type: 'COLON', value: ':' }); i++; continue; }
+                    if (ch === ';') { tokens.push({ type: 'SEMI', value: ';' }); i++; continue; }
+
+                    // String
+                    if (ch === '"' || ch === "'") {
+                        const q = ch; i++;
+                        let s = '';
+                        while (i < len && src[i] !== q) {
+                            if (src[i] === '\\') { i++; s += src[i] || ''; }
+                            else { s += src[i]; }
+                            i++;
+                        }
+                        i++;
+                        tokens.push({ type: 'STRING', value: s });
+                        continue;
+                    }
+
+                    // Hex color
+                    if (ch === '#') {
+                        let hex = '#'; i++;
+                        while (i < len && /[0-9a-fA-F]/.test(src[i])) { hex += src[i]; i++; }
+                        tokens.push({ type: 'HASH', value: hex });
+                        continue;
+                    }
+
+                    // Number
+                    if (/[0-9]/.test(ch) || (ch === '-' && i + 1 < len && /[0-9.]/.test(src[i + 1]))) {
+                        let num = '';
+                        if (ch === '-') { num += '-'; i++; }
+                        while (i < len && /[0-9.]/.test(src[i])) { num += src[i]; i++; }
+                        tokens.push({ type: 'NUMBER', value: parseFloat(num) });
+                        continue;
+                    }
+
+                    // Word
+                    if (/[a-zA-Z_]/.test(ch)) {
+                        let w = '';
+                        while (i < len && /[a-zA-Z0-9_]/.test(src[i])) { w += src[i]; i++; }
+                        tokens.push({ type: 'WORD', value: w });
+                        continue;
+                    }
+
+                    i++; // skip unknown
+                }
+                return tokens;
+            }
+
+            // ──────────────────────────────────────────────────────────
+            //  RECURSIVE DESCENT PARSER
+            // ──────────────────────────────────────────────────────────
+
+            function parse(src) {
+                const tokens = tokenize(src);
+                let pos = 0;
+
+                const peek = () => tokens[pos] || null;
+                const advance = () => tokens[pos++];
+                const expect = (type) => {
+                    const t = advance();
+                    if (!t || t.type !== type)
+                        throw new Error(`Expected ${type}, got ${t ? t.type + '(' + t.value + ')' : 'EOF'} at #${pos - 1}`);
+                    return t;
+                };
+
+                function isProperty() {
+                    return pos + 1 < tokens.length &&
+                        tokens[pos].type === 'WORD' &&
+                        tokens[pos + 1].type === 'COLON';
+                }
+
+                function isChildBlock() {
+                    const t = peek();
+                    if (!t || t.type !== 'WORD') return false;
+                    const t1 = tokens[pos + 1];
+                    if (t1 && t1.type === 'LBRACE') return true;
+                    if (t1 && t1.type === 'WORD' && tokens[pos + 2] && tokens[pos + 2].type === 'LBRACE') return true;
+                    return false;
+                }
+
+                function parseValue() {
+                    const t = peek();
+                    if (!t) throw new Error('Unexpected EOF in value');
+                    if (t.type === 'STRING') { advance(); return t.value; }
+                    if (t.type === 'HASH') { advance(); return t.value; }
+                    if (t.type === 'WORD' && (t.value === 'true' || t.value === 'false')) {
+                        advance(); return t.value === 'true';
+                    }
+                    if (t.type === 'NUMBER') {
+                        const nums = [];
+                        while (peek() && peek().type === 'NUMBER') nums.push(advance().value);
+                        return nums.length === 1 ? nums[0] : nums;
+                    }
+                    if (t.type === 'WORD') { advance(); return t.value; }
+                    throw new Error(`Unexpected token ${t.type}(${t.value}) in value`);
+                }
+
+                function parseBlock() {
+                    const properties = {};
+                    const children = [];
+                    while (peek() && peek().type !== 'RBRACE') {
+                        if (isProperty()) {
+                            const key = advance().value;
+                            expect('COLON');
+                            const val = parseValue();
+                            properties[key] = val;
+                            if (peek() && peek().type === 'SEMI') advance();
+                        } else if (isChildBlock()) {
+                            children.push(parseChild());
+                        } else {
+                            advance(); // skip
+                        }
+                    }
+                    return { properties, children };
+                }
+
+                function parseChild() {
+                    const shapeType = expect('WORD').value;
+                    let name = null;
+                    if (peek() && peek().type === 'WORD') name = advance().value;
+                    expect('LBRACE');
+                    const { properties, children } = parseBlock();
+                    expect('RBRACE');
+                    return { type: shapeType, name, properties, children };
+                }
+
+                // Entry: scene { ... }
+                expect('WORD'); // "scene"
+                expect('LBRACE');
+                const { properties: sceneProps, children: sceneChildren } = parseBlock();
+                expect('RBRACE');
+                return buildSceneTree(sceneProps, sceneChildren);
+            }
+
+            // ──────────────────────────────────────────────────────────
+            //  SCENE TREE BUILDER  (apply defaults, resolve refs)
+            // ──────────────────────────────────────────────────────────
+
+            function buildSceneTree(sceneProps, rawChildren) {
+                const scene = {
+                    type: 'scene',
+                    background: sceneProps.background || SCENE_DEFAULTS.background,
+                    fog: sceneProps.fog !== undefined ? sceneProps.fog : SCENE_DEFAULTS.fog,
+                    camera: { ...CAMERA_DEFAULTS },
+                    objects: [],
+                    connectors: [],
+                };
+
+                const registry = {};
+                const deferredConnectors = [];
+
+                for (const child of rawChildren) {
+                    if (child.type === 'camera') {
+                        scene.camera = buildCamera(child.properties);
+                    } else if (CONNECTOR_TYPES.has(child.type)) {
+                        deferredConnectors.push(child);
+                    } else if (child.type === 'group') {
+                        const grp = buildGroup(child, registry);
+                        scene.objects.push(grp);
+                    } else {
+                        scene.objects.push(buildObject(child, registry));
+                    }
+                }
+
+                // Resolve connectors
+                scene.connectors = deferredConnectors.map(c => buildConnector(c, registry));
+
+                return scene;
+            }
+
+            function buildCamera(props) {
+                return {
+                    angle: normalizeVec(props.angle, 2, CAMERA_DEFAULTS.angle),
+                    zoom: props.zoom !== undefined ? props.zoom : CAMERA_DEFAULTS.zoom,
+                    target: normalizeVec(props.target, 3, CAMERA_DEFAULTS.target),
+                };
+            }
+
+            function buildObject(node, registry) {
+                const obj = {
+                    type: node.type,
+                    name: node.name || null,
+                    ...deepClone(SHAPE_DEFAULTS._universal),
+                };
+                if (SHAPE_DEFAULTS[node.type]) Object.assign(obj, deepClone(SHAPE_DEFAULTS[node.type]));
+
+                for (const [k, v] of Object.entries(node.properties)) {
+                    if (k === 'pos') { obj.pos = normalizeVec(v, 3, [0, 0, 0]); }
+                    else if (k === 'rotate') { obj.rotate = normalizeVec(v, 3, [0, 0, 0]); }
+                    else { obj[k] = v; }
+                }
+
+                if (node.name) registry[node.name] = obj;
+                return obj;
+            }
+
+            function buildGroup(node, registry) {
+                const grp = {
+                    type: 'group',
+                    name: node.name || null,
+                    pos: normalizeVec(node.properties.pos, 3, [0, 0, 0]),
+                    rotate: normalizeVec(node.properties.rotate, 3, [0, 0, 0]),
+                    children: [],
+                    connectors: [],
+                };
+
+                for (const child of node.children) {
+                    if (CONNECTOR_TYPES.has(child.type)) {
+                        grp.connectors.push(child); // defer
+                    } else if (child.type === 'group') {
+                        grp.children.push(buildGroup(child, registry));
+                    } else {
+                        grp.children.push(buildObject(child, registry));
+                    }
+                }
+
+                // Resolve group-level connectors
+                grp.connectors = grp.connectors.map(c => buildConnector(c, registry));
+
+                if (node.name) registry[node.name] = grp;
+                return grp;
+            }
+
+            function buildConnector(node, registry) {
+                const p = node.properties;
+                return {
+                    type: node.type,
+                    name: node.name || null,
+                    from: resolveRef(p.from, registry),
+                    to: resolveRef(p.to, registry),
+                    color: p.color || '#ffffff',
+                    thickness: p.thickness !== undefined ? p.thickness : 1,
+                    label: p.label || null,
+                };
+            }
+
+            function resolveRef(val, reg) {
+                if (typeof val === 'string' && reg[val])
+                    return { ref: val, pos: [...reg[val].pos] };
+                if (Array.isArray(val))
+                    return { ref: null, pos: normalizeVec(val, 3, [0, 0, 0]) };
+                if (typeof val === 'number')
+                    return { ref: null, pos: [val, 0, 0] };
+                if (typeof val === 'string')
+                    return { ref: val, pos: [0, 0, 0] }; // unresolved
+                return { ref: null, pos: [0, 0, 0] };
+            }
+
+            function normalizeVec(val, len, fb) {
+                if (Array.isArray(val)) {
+                    const v = val.slice(0, len);
+                    while (v.length < len) v.push(0);
+                    return v;
+                }
+                if (typeof val === 'number') {
+                    const v = [val]; while (v.length < len) v.push(0); return v;
+                }
+                return fb ? [...fb] : new Array(len).fill(0);
+            }
+
+            function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
+
+            // ══════════════════════════════════════════════════════════
+            //  RENDERER
+            // ══════════════════════════════════════════════════════════
+
+            /**
+             * Renders a parsed scene tree into a Three.js scene inside the given container.
+             * @param {Object} sceneTree - the parsed scene JSON
+             * @param {HTMLElement} container - DOM element to render into
+             */
+            function render(sceneTree, container) {
+                // ── Setup ──────────────────────────────────────────────
+                const width = container.clientWidth || 900;
+                const height = 500;
+
+                const scene = new THREE.Scene();
+                const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+                renderer.setSize(width, height);
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                renderer.shadowMap.enabled = true;
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                renderer.outputEncoding = THREE.sRGBEncoding;
+                renderer.toneMapping = THREE.ACESFilmicToneMapping;
+                renderer.toneMappingExposure = 1.0;
+
+                container.appendChild(renderer.domElement);
+
+                // Background
+                scene.background = new THREE.Color(sceneTree.background);
+
+                // Fog
+                if (sceneTree.fog) {
+                    const bgColor = new THREE.Color(sceneTree.background);
+                    scene.fog = new THREE.FogExp2(bgColor, 0.05);
+                }
+
+                // ── Camera ─────────────────────────────────────────────
+                const cam = sceneTree.camera;
+                const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+
+                // Convert spherical angles to camera position
+                const hAngle = THREE.MathUtils.degToRad(cam.angle[0]);
+                const vAngle = THREE.MathUtils.degToRad(cam.angle[1]);
+                const dist = 10 / cam.zoom;
+
+                camera.position.set(
+                    dist * Math.cos(vAngle) * Math.sin(hAngle),
+                    dist * Math.sin(vAngle),
+                    dist * Math.cos(vAngle) * Math.cos(hAngle)
+                );
+                camera.lookAt(new THREE.Vector3(cam.target[0], cam.target[1], cam.target[2]));
+
+                // ── Lighting ───────────────────────────────────────────
+                // Ambient for base illumination
+                const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambient);
+
+                // Hemisphere light for natural sky-ground gradient
+                const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4);
+                hemiLight.position.set(0, 20, 0);
+                scene.add(hemiLight);
+
+                // Main directional light with shadows
+                const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                dirLight.position.set(8, 12, 8);
+                dirLight.castShadow = true;
+                dirLight.shadow.mapSize.width = 2048;
+                dirLight.shadow.mapSize.height = 2048;
+                dirLight.shadow.camera.near = 0.5;
+                dirLight.shadow.camera.far = 50;
+                dirLight.shadow.camera.left = -15;
+                dirLight.shadow.camera.right = 15;
+                dirLight.shadow.camera.top = 15;
+                dirLight.shadow.camera.bottom = -15;
+                dirLight.shadow.bias = -0.001;
+                scene.add(dirLight);
+
+                // Fill light from opposite side
+                const fillLight = new THREE.DirectionalLight(0xffffff, 0.25);
+                fillLight.position.set(-5, 6, -5);
+                scene.add(fillLight);
+
+                // ── Label collection (sprite-based) ────────────────────
+                const labels = [];
+
+                // ── Add objects ────────────────────────────────────────
+                function addObjectsToParent(objects, parent, groupOffset) {
+                    for (const obj of objects) {
+                        if (obj.type === 'group') {
+                            const group = new THREE.Group();
+                            group.position.set(obj.pos[0], obj.pos[1], obj.pos[2]);
+                            if (obj.rotate) {
+                                group.rotation.set(
+                                    THREE.MathUtils.degToRad(obj.rotate[0]),
+                                    THREE.MathUtils.degToRad(obj.rotate[1]),
+                                    THREE.MathUtils.degToRad(obj.rotate[2])
+                                );
+                            }
+                            parent.add(group);
+
+                            addObjectsToParent(obj.children, group, [
+                                groupOffset[0] + obj.pos[0],
+                                groupOffset[1] + obj.pos[1],
+                                groupOffset[2] + obj.pos[2],
+                            ]);
+
+                            // Group connectors — use [0,0,0] offset because the THREE.Group
+                            // already applies the group transform, so connector positions
+                            // should be in the group's local coordinate space.
+                            if (obj.connectors) {
+                                for (const conn of obj.connectors) {
+                                    addConnector(conn, group, [0, 0, 0]);
+                                }
+                            }
+                        } else {
+                            const mesh = createMesh(obj);
+                            if (mesh) {
+                                parent.add(mesh);
+                            }
+                        }
+                    }
+                }
+
+                function createMesh(obj) {
+                    let geometry = null;
+                    let material = null;
+                    let mesh = null;
+
+                    const color = new THREE.Color(obj.color);
+
+                    // ── Material ─────────────────────────────────────────
+                    const matOpts = {
+                        color,
+                        wireframe: obj.wireframe,
+                        transparent: obj.opacity < 1,
+                        opacity: obj.opacity,
+                        side: THREE.DoubleSide, // needed for 2D shapes
+                    };
+
+                    material = new THREE.MeshStandardMaterial(matOpts);
+
+                    // ── Geometry by type ─────────────────────────────────
+                    switch (obj.type) {
+                        case 'cube':
+                            geometry = new THREE.BoxGeometry(obj.size, obj.size, obj.size);
+                            break;
+
+                        case 'cuboid':
+                            geometry = new THREE.BoxGeometry(obj.width, obj.height, obj.depth);
+                            break;
+
+                        case 'sphere':
+                            geometry = new THREE.SphereGeometry(obj.radius, 32, 32);
+                            break;
+
+                        case 'hemisphere':
+                            // SphereGeometry with phi range for half sphere
+                            geometry = new THREE.SphereGeometry(obj.radius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+                            break;
+
+                        case 'cylinder':
+                            geometry = new THREE.CylinderGeometry(obj.radius, obj.radius, obj.height, 32);
+                            break;
+
+                        case 'hollow_cylinder': {
+                            // Lathe geometry: cross-section rectangle rotated around Y axis
+                            const outerR = obj.radius;
+                            const innerR = obj.inner_radius !== undefined ? obj.inner_radius : outerR * 0.6;
+                            const h = obj.height;
+                            // Create shape as cross-section, then lathe it
+                            const shape = new THREE.Shape();
+                            shape.moveTo(innerR, -h / 2);
+                            shape.lineTo(outerR, -h / 2);
+                            shape.lineTo(outerR, h / 2);
+                            shape.lineTo(innerR, h / 2);
+                            shape.lineTo(innerR, -h / 2);
+
+                            geometry = new THREE.LatheGeometry(
+                                shape.getPoints(1),
+                                32
+                            );
+                            break;
+                        }
+
+                        case 'cone':
+                            geometry = new THREE.ConeGeometry(obj.radius, obj.height, 32);
+                            break;
+
+                        case 'hollow_cone': {
+                            const outerR = obj.radius;
+                            const innerR = obj.inner_radius !== undefined ? obj.inner_radius : outerR * 0.4;
+                            const h = obj.height;
+
+                            // Build as a lathe of a trapezoidal cross section
+                            const points = [
+                                new THREE.Vector2(innerR * 0.3, h / 2),    // inner top (narrower)
+                                new THREE.Vector2(innerR, -h / 2),          // inner bottom
+                                new THREE.Vector2(outerR, -h / 2),          // outer bottom
+                                new THREE.Vector2(outerR * 0.3, h / 2),    // outer top (narrower)
+                            ];
+                            geometry = new THREE.LatheGeometry(points, 32);
+                            break;
+                        }
+
+                        // ── 2D Shapes (rendered as flat geometry in 3D space) ──
+                        case 'square':
+                            geometry = new THREE.PlaneGeometry(obj.size, obj.size);
+                            break;
+
+                        case 'rectangle':
+                            geometry = new THREE.PlaneGeometry(obj.width, obj.height);
+                            break;
+
+                        case 'circle':
+                            geometry = new THREE.CircleGeometry(obj.radius, 32);
+                            break;
+
+                        case 'semicircle':
+                            geometry = new THREE.CircleGeometry(obj.radius, 32, 0, Math.PI);
+                            break;
+
+                        case 'triangle': {
+                            const s = obj.size;
+                            const triShape = new THREE.Shape();
+                            triShape.moveTo(0, s * 0.866 / 2);
+                            triShape.lineTo(-s / 2, -s * 0.866 / 2);
+                            triShape.lineTo(s / 2, -s * 0.866 / 2);
+                            triShape.lineTo(0, s * 0.866 / 2);
+                            geometry = new THREE.ShapeGeometry(triShape);
+                            break;
+                        }
+
+                        case 'plane':
+                            geometry = new THREE.PlaneGeometry(obj.width, obj.height);
+                            break;
+
+                        case 'label': {
+                            // Standalone label — no geometry, just a sprite
+                            const sprite = createLabelSprite(obj.label || obj.name || 'label', obj.color);
+                            sprite.position.set(obj.pos[0], obj.pos[1], obj.pos[2]);
+                            sprite.scale.set(2, 1, 1);
+                            return sprite;
+                        }
+
+                        default:
+                            console.warn(`[SpaTeX] Unknown shape type: "${obj.type}"`);
+                            return null;
+                    }
+
+                    mesh = new THREE.Mesh(geometry, material);
+
+                    // Position
+                    mesh.position.set(obj.pos[0], obj.pos[1], obj.pos[2]);
+
+                    // Rotation (degrees → radians)
+                    mesh.rotation.set(
+                        THREE.MathUtils.degToRad(obj.rotate[0]),
+                        THREE.MathUtils.degToRad(obj.rotate[1]),
+                        THREE.MathUtils.degToRad(obj.rotate[2])
+                    );
+
+                    // Shadows
+                    if (obj.shadow) {
+                        mesh.castShadow = true;
+                        mesh.receiveShadow = true;
+                    }
+
+                    // Label — sprite above the mesh
+                    if (obj.label) {
+                        const sprite = createLabelSprite(obj.label, '#ffffff');
+                        // Position label above the object
+                        const bbox = new THREE.Box3().setFromObject(mesh);
+                        const topY = bbox.max.y - obj.pos[1] + 0.4;
+                        sprite.position.set(0, topY, 0);
+                        sprite.scale.set(2.5, 0.6, 1);
+                        mesh.add(sprite);
+                    }
+
+                    return mesh;
+                }
+
+                // ── Create a text sprite label ─────────────────────────
+                function createLabelSprite(text, color) {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 512;
+                    canvas.height = 128;
+
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                    // Background pill
+                    const padding = 20;
+                    ctx.font = 'bold 48px Inter, Arial, sans-serif';
+                    const metrics = ctx.measureText(text);
+                    const textW = metrics.width;
+                    const pillW = Math.min(textW + padding * 2, canvas.width);
+                    const pillH = 72;
+                    const pillX = (canvas.width - pillW) / 2;
+                    const pillY = (canvas.height - pillH) / 2;
+
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+                    roundRect(ctx, pillX, pillY, pillW, pillH, 16);
+                    ctx.fill();
+
+                    // Border
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                    ctx.lineWidth = 2;
+                    roundRect(ctx, pillX, pillY, pillW, pillH, 16);
+                    ctx.stroke();
+
+                    // Text
+                    ctx.fillStyle = color || '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.font = 'bold 44px Inter, Arial, sans-serif';
+                    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+                    const texture = new THREE.CanvasTexture(canvas);
+                    texture.minFilter = THREE.LinearFilter;
+                    texture.magFilter = THREE.LinearFilter;
+
+                    const spriteMat = new THREE.SpriteMaterial({
+                        map: texture,
+                        transparent: true,
+                        depthTest: false,
+                        depthWrite: false,
+                    });
+                    return new THREE.Sprite(spriteMat);
+                }
+
+                function roundRect(ctx, x, y, w, h, r) {
+                    ctx.beginPath();
+                    ctx.moveTo(x + r, y);
+                    ctx.lineTo(x + w - r, y);
+                    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                    ctx.lineTo(x + w, y + h - r);
+                    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                    ctx.lineTo(x + r, y + h);
+                    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                    ctx.lineTo(x, y + r);
+                    ctx.quadraticCurveTo(x, y, x + r, y);
+                    ctx.closePath();
+                }
+
+                // ── Add connectors (arrows & lines) ───────────────────
+                function addConnector(conn, parent, groupOffset) {
+                    const gx = groupOffset[0], gy = groupOffset[1], gz = groupOffset[2];
+                    const from = new THREE.Vector3(
+                        conn.from.pos[0] + gx,
+                        conn.from.pos[1] + gy,
+                        conn.from.pos[2] + gz
+                    );
+                    const to = new THREE.Vector3(
+                        conn.to.pos[0] + gx,
+                        conn.to.pos[1] + gy,
+                        conn.to.pos[2] + gz
+                    );
+
+                    const dir = new THREE.Vector3().subVectors(to, from);
+                    const length = dir.length();
+
+                    if (length < 0.001) return; // skip zero-length
+
+                    const color = new THREE.Color(conn.color);
+
+                    if (conn.type === 'arrow') {
+                        // ── Arrow: tube body + cone head ───────────────────
+                        const headLength = Math.min(length * 0.2, 0.5);
+                        const headWidth = 0.15;
+                        const bodyLength = length - headLength;
+
+                        // Body (tube along Y, then oriented)
+                        const bodyGeo = new THREE.CylinderGeometry(0.04, 0.04, bodyLength, 8);
+                        const bodyMat = new THREE.MeshStandardMaterial({ color });
+                        const body = new THREE.Mesh(bodyGeo, bodyMat);
+
+                        // Head (cone)
+                        const headGeo = new THREE.ConeGeometry(headWidth, headLength, 8);
+                        const headMat = new THREE.MeshStandardMaterial({ color });
+                        const head = new THREE.Mesh(headGeo, headMat);
+
+                        // Group them
+                        const arrowGroup = new THREE.Group();
+
+                        // Body centered along local Y
+                        body.position.set(0, bodyLength / 2, 0);
+                        arrowGroup.add(body);
+
+                        // Head at the tip
+                        head.position.set(0, bodyLength + headLength / 2, 0);
+                        arrowGroup.add(head);
+
+                        // Position at 'from'
+                        arrowGroup.position.copy(from);
+
+                        // Orient to point from → to
+                        const up = new THREE.Vector3(0, 1, 0);
+                        const quat = new THREE.Quaternion().setFromUnitVectors(up, dir.clone().normalize());
+                        arrowGroup.setRotationFromQuaternion(quat);
+
+                        parent.add(arrowGroup);
+
+                        // Label at midpoint
+                        if (conn.label) {
+                            const mid = new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5);
+                            const label = createLabelSprite(conn.label, '#ffffff');
+                            label.position.copy(mid);
+                            label.position.x += 0.5;
+                            label.scale.set(2, 0.5, 1);
+                            parent.add(label);
+                        }
+
+                    } else if (conn.type === 'line') {
+                        // ── Line: simple line geometry ─────────────────────
+                        const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+                        const mat = new THREE.LineBasicMaterial({ color, linewidth: conn.thickness });
+                        const line = new THREE.Line(geo, mat);
+                        parent.add(line);
+
+                        // Label at midpoint
+                        if (conn.label) {
+                            const mid = new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5);
+                            const label = createLabelSprite(conn.label, '#ffffff');
+                            label.position.copy(mid);
+                            label.position.y += 0.3;
+                            label.scale.set(2, 0.5, 1);
+                            parent.add(label);
+                        }
+                    }
+                }
+
+                // ── Build the scene ────────────────────────────────────
+                addObjectsToParent(sceneTree.objects, scene, [0, 0, 0]);
+
+                // Scene-level connectors
+                for (const conn of sceneTree.connectors) {
+                    addConnector(conn, scene, [0, 0, 0]);
+                }
+
+                // ── Orbit Controls (inline implementation) ─────────────
+                // Since OrbitControls isn't bundled with Three.js r128 core,
+                // we implement a lightweight version here.
+                const orbitState = {
+                    target: new THREE.Vector3(cam.target[0], cam.target[1], cam.target[2]),
+                    spherical: new THREE.Spherical().setFromVector3(
+                        camera.position.clone().sub(new THREE.Vector3(cam.target[0], cam.target[1], cam.target[2]))
+                    ),
+                    isDragging: false,
+                    isPanning: false,
+                    prevMouse: { x: 0, y: 0 },
+                    rotateSpeed: 0.005,
+                    panSpeed: 0.01,
+                    zoomSpeed: 0.1,
+                    dampingFactor: 0.05,
+                    // Velocity for damping
+                    rotVel: { theta: 0, phi: 0 },
+                };
+
+                // Clamp phi to avoid flipping
+                function clampPhi(phi) {
+                    return Math.max(0.05, Math.min(Math.PI - 0.05, phi));
+                }
+
+                const canvasEl = renderer.domElement;
+
+                canvasEl.addEventListener('mousedown', (e) => {
+                    if (e.button === 0) { orbitState.isDragging = true; }
+                    if (e.button === 2 || e.button === 1) { orbitState.isPanning = true; }
+                    orbitState.prevMouse = { x: e.clientX, y: e.clientY };
+                });
+
+                canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
+
+                window.addEventListener('mouseup', () => {
+                    orbitState.isDragging = false;
+                    orbitState.isPanning = false;
+                });
+
+                window.addEventListener('mousemove', (e) => {
+                    const dx = e.clientX - orbitState.prevMouse.x;
+                    const dy = e.clientY - orbitState.prevMouse.y;
+                    orbitState.prevMouse = { x: e.clientX, y: e.clientY };
+
+                    if (orbitState.isDragging) {
+                        orbitState.spherical.theta -= dx * orbitState.rotateSpeed;
+                        orbitState.spherical.phi -= dy * orbitState.rotateSpeed;
+                        orbitState.spherical.phi = clampPhi(orbitState.spherical.phi);
+                    }
+
+                    if (orbitState.isPanning) {
+                        // Pan along camera's local right and up vectors
+                        const right = new THREE.Vector3();
+                        const up = new THREE.Vector3();
+                        camera.matrix.extractBasis(right, up, new THREE.Vector3());
+                        orbitState.target.addScaledVector(right, -dx * orbitState.panSpeed);
+                        orbitState.target.addScaledVector(up, dy * orbitState.panSpeed);
+                    }
+                });
+
+                canvasEl.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const factor = 1 + e.deltaY * 0.001;
+                    orbitState.spherical.radius *= factor;
+                    orbitState.spherical.radius = Math.max(1, Math.min(100, orbitState.spherical.radius));
+                }, { passive: false });
+
+                // ── Touch support ──────────────────────────────────────
+                let touchStartDist = 0;
+                let touchPrevPos = null;
+
+                canvasEl.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    if (e.touches.length === 1) {
+                        orbitState.isDragging = true;
+                        orbitState.prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                    } else if (e.touches.length === 2) {
+                        orbitState.isDragging = false;
+                        const dx = e.touches[0].clientX - e.touches[1].clientX;
+                        const dy = e.touches[0].clientY - e.touches[1].clientY;
+                        touchStartDist = Math.sqrt(dx * dx + dy * dy);
+                        touchPrevPos = {
+                            x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+                            y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+                        };
+                    }
+                }, { passive: false });
+
+                canvasEl.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    if (e.touches.length === 1 && orbitState.isDragging) {
+                        const dx = e.touches[0].clientX - orbitState.prevMouse.x;
+                        const dy = e.touches[0].clientY - orbitState.prevMouse.y;
+                        orbitState.prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                        orbitState.spherical.theta -= dx * orbitState.rotateSpeed;
+                        orbitState.spherical.phi -= dy * orbitState.rotateSpeed;
+                        orbitState.spherical.phi = clampPhi(orbitState.spherical.phi);
+                    } else if (e.touches.length === 2) {
+                        // Pinch zoom
+                        const dx = e.touches[0].clientX - e.touches[1].clientX;
+                        const dy = e.touches[0].clientY - e.touches[1].clientY;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (touchStartDist > 0) {
+                            const factor = touchStartDist / dist;
+                            orbitState.spherical.radius *= factor;
+                            orbitState.spherical.radius = Math.max(1, Math.min(100, orbitState.spherical.radius));
+                        }
+                        touchStartDist = dist;
+
+                        // Pan
+                        const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                        const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                        if (touchPrevPos) {
+                            const pdx = cx - touchPrevPos.x;
+                            const pdy = cy - touchPrevPos.y;
+                            const right = new THREE.Vector3();
+                            const up = new THREE.Vector3();
+                            camera.matrix.extractBasis(right, up, new THREE.Vector3());
+                            orbitState.target.addScaledVector(right, -pdx * orbitState.panSpeed);
+                            orbitState.target.addScaledVector(up, pdy * orbitState.panSpeed);
+                        }
+                        touchPrevPos = { x: cx, y: cy };
+                    }
+                }, { passive: false });
+
+                canvasEl.addEventListener('touchend', () => {
+                    orbitState.isDragging = false;
+                    touchStartDist = 0;
+                    touchPrevPos = null;
+                });
+
+                // ── Animation Loop ─────────────────────────────────────
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // Update camera from spherical
+                    const offset = new THREE.Vector3().setFromSpherical(orbitState.spherical);
+                    camera.position.copy(orbitState.target).add(offset);
+                    camera.lookAt(orbitState.target);
+
+                    renderer.render(scene, camera);
+                }
+                animate();
+
+                // ── Resize handling ────────────────────────────────────
+                const resizeObserver = new ResizeObserver(() => {
+                    const w = container.clientWidth;
+                    const h = 500;
+                    camera.aspect = w / h;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(w, h);
+                });
+                resizeObserver.observe(container);
+
+                return { scene, camera, renderer };
+            }
+
+            // ══════════════════════════════════════════════════════════
+            //  SCANNER — find & replace ```3d code blocks
+            // ══════════════════════════════════════════════════════════
+
+            function scanAndRender() {
+                const codeBlocks = document.querySelectorAll('code.language-3d');
+
+                codeBlocks.forEach((codeEl, index) => {
+                    const src = codeEl.textContent.trim();
+                    const preEl = codeEl.parentElement; // <pre>
+
+                    try {
+                        const sceneTree = SpaTeX.parse(src);
+                        console.log(`%c[SpaTeX] Scene #${index + 1} parsed:`, 'color: #6366f1; font-weight: bold;', sceneTree);
+
+                        // Create container
+                        const container = document.createElement('div');
+                        container.className = 'spatex-container';
+                        container.id = `spatex-scene-${index}`;
+
+                        // Badge
+                        const badge = document.createElement('div');
+                        badge.className = 'spatex-badge';
+                        badge.textContent = 'SpaTeX';
+                        container.appendChild(badge);
+
+                        // Controls hint
+                        const hint = document.createElement('div');
+                        hint.className = 'spatex-controls-hint';
+                        hint.textContent = '🖱 Drag to orbit · Scroll to zoom · Right-drag to pan';
+                        container.appendChild(hint);
+
+                        // Replace <pre> with container
+                        preEl.replaceWith(container);
+
+                        // Render
+                        render(sceneTree, container);
+
+                        // Fade out hint after 4 seconds
+                        setTimeout(() => {
+                            hint.style.opacity = '0';
+                            setTimeout(() => hint.remove(), 500);
+                        }, 4000);
+
+                    } catch (e) {
+                        console.error(`[SpaTeX] Error in scene #${index + 1}:`, e);
+                        codeEl.style.borderColor = '#ef4444';
+                        codeEl.style.color = '#fca5a5';
+                        codeEl.textContent = `Parse Error: ${e.message}\n\n${src}`;
+                    }
+                });
+            }
+
+            // ══════════════════════════════════════════════════════════
+            //  PUBLIC API
+            // ══════════════════════════════════════════════════════════
+            return { parse, render, scanAndRender, tokenize };
+
+        })();
+
+        // ── Boot ───────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', () => {
+            SpaTeX.scanAndRender();
+        });
+    </script>
+
+</body>
+
+</html>
