@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpaTeX — Text-Based 3D Diagrams</title>
+  <meta name="description"
+    content="A text-based 3D diagram library similar to Mermaid, but for interactive Three.js 3D scenes.">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────── */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e4e4e7;
+      --text-muted: #9ca3af;
+      --accent: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.3);
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .page-header {
+      max-width: 900px;
+      margin: 0 auto 2rem;
+    }
+
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+      background: linear-gradient(135deg, #6366f1, #a78bfa, #818cf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .demo-label {
+      max-width: 900px;
+      margin: 2rem auto 0.5rem;
+      font-size: 0.8rem;
+      font-family: var(--font-mono);
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Canvas Container ─────────────────────────────────── */
+    .spatex-container {
+      position: relative;
+      width: 100%;
+      max-width: 900px;
+      margin: 1.5rem auto;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow:
+        0 0 0 1px rgba(99, 102, 241, 0.08),
+        0 8px 32px rgba(0, 0, 0, 0.5),
+        0 0 80px rgba(99, 102, 241, 0.04);
+      background: var(--surface);
+      transition: box-shadow 0.3s ease;
+    }
+
+    .spatex-container:hover {
+      box-shadow:
+        0 0 0 1px rgba(99, 102, 241, 0.15),
+        0 8px 40px rgba(0, 0, 0, 0.6),
+        0 0 100px rgba(99, 102, 241, 0.08);
+    }
+
+    .spatex-container canvas {
+      display: block;
+      width: 100% !important;
+      height: 500px !important;
+      cursor: grab;
+    }
+
+    .spatex-container canvas:active {
+      cursor: grabbing;
+    }
+
+    .spatex-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(15, 17, 23, 0.8);
+      backdrop-filter: blur(8px);
+      color: var(--text-muted);
+      font-size: 0.65rem;
+      font-family: var(--font-mono);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      pointer-events: none;
+      z-index: 10;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .spatex-controls-hint {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 17, 23, 0.75);
+      backdrop-filter: blur(8px);
+      color: var(--text-muted);
+      font-size: 0.65rem;
+      font-family: var(--font-sans);
+      padding: 4px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      pointer-events: none;
+      z-index: 10;
+      opacity: 0.8;
+      transition: opacity 0.5s ease;
+    }
+
+    .spatex-container:active .spatex-controls-hint {
+      opacity: 0;
+    }
+
+    /* ── Label overlay (CSS2D-style) ──────────────────────── */
+    .spatex-label-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 5;
+    }
+
+    /* ── Fallback code block styling ──────────────────────── */
+    pre {
+      max-width: 900px;
+      margin: 1rem auto;
+    }
+
+    pre code.language-spatex,
+    pre code.language-3d {
+      display: block;
+      background: var(--surface);
+      color: var(--text);
+      padding: 1.5rem;
+      border-radius: 10px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      border: 1px solid var(--border);
+      white-space: pre-wrap;
+    }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    .footer {
+      max-width: 900px;
+      margin: 3rem auto 1rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      opacity: 0.6;
+    }
+
+    .footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="page-header">
+    <h1>SpaTeX</h1>
+    <p class="subtitle">Text-based 3D diagrams — like Mermaid, but for Three.js scenes.</p>
+  </div>
+
+  <!-- ── Demo 1: Basic shapes ──────────────────────────────── -->
+  <p class="demo-label">Demo 1 — Basic Shapes</p>
+  <pre><code class="language-spatex">
+scene {
+  background: #1a1a2e;
+  camera { angle: 45 30; zoom: 1.5 }
+
+  sphere {
+    pos: 0 0 0;
+    radius: 1;
+    color: steelblue;
+    label: "Sphere";
+  }
+
+  cube {
+    pos: 3 0 0;
+    size: 1.5;
+    color: coral;
+    label: "Cube";
+  }
+
+  arrow {
+    from: 0 0 0;
+    to: 3 0 0;
+    color: white;
+  }
+}
+    </code></pre>
+
+  <!-- ── Demo 2: Base and Ball ──────────────────────────────── -->
+  <p class="demo-label">Demo 2 — Base & Ball</p>
+  <pre><code class="language-spatex">
+scene {
+  background: #f0f0f0;
+  camera { angle: 45 30; zoom: 1.5 }
+
+  cylinder myBase {
+    pos: 0 0 0;
+    radius: 2;
+    height: 0.5;
+    color: gray;
+    shadow: true;
+    label: "Base";
+  }
+
+  sphere myBall {
+    pos: 0 2 0;
+    radius: 1;
+    color: steelblue;
+    shadow: true;
+    label: "Ball";
+  }
+
+  arrow {
+    from: myBase;
+    to: myBall;
+    color: coral;
+    label: "supports";
+  }
+}
+    </code></pre>
+
+  <!-- ── Demo 3: All Shapes Showcase ────────────────────────── -->
+  <p class="demo-label">Demo 3 — All Shapes Showcase</p>
+  <pre><code class="language-spatex">
+scene {
+  background: #1a1a2e;
+  fog: false;
+
+  camera {
+    angle: 35 25;
+    zoom: 1.2;
+    target: 0 1 0;
+  }
+
+  cube myCube {
+    pos: -8 0.5 0;
+    size: 1;
+    color: #e74c3c;
+    shadow: true;
+    label: "Cube";
+  }
+
+  cuboid myCuboid {
+    pos: -5.5 0.5 0;
+    width: 1.5;
+    height: 1;
+    depth: 0.8;
+    color: #e67e22;
+    shadow: true;
+    label: "Cuboid";
+  }
+
+  sphere mySphere {
+    pos: -3 1 0;
+    radius: 0.8;
+    color: #f1c40f;
+    shadow: true;
+    label: "Sphere";
+  }
+
+  hemisphere myHemi {
+    pos: -0.5 0 0;
+    radius: 0.8;
+    color: #2ecc71;
+    shadow: true;
+    label: "Hemisphere";
+  }
+
+  cylinder myCyl {
+    pos: 2 0.75 0;
+    radius: 0.6;
+    height: 1.5;
+    color: #3498db;
+    shadow: true;
+    label: "Cylinder";
+  }
+
+  cone myCone {
+    pos: 4.5 0.75 0;
+    radius: 0.7;
+    height: 1.5;
+    color: #9b59b6;
+    shadow: true;
+    label: "Cone";
+  }
+
+  arrow {
+    from: myCube;
+    to: myCuboid;
+    color: #e74c3c;
+  }
+
+  line {
+    from: mySphere;
+    to: myCyl;
+    color: #f1c40f;
+    label: "link";
+  }
+
+  group myGroup {
+    pos: 0 3 -3;
+
+    cube groupCube1 {
+      pos: -1 0 0;
+      size: 0.5;
+      color: #00cec9;
+      label: "G1";
+    }
+
+    cube groupCube2 {
+      pos: 1 0 0;
+      size: 0.5;
+      color: #6c5ce7;
+      label: "G2";
+    }
+
+    arrow {
+      from: groupCube1;
+      to: groupCube2;
+      color: white;
+      label: "grouped";
+    }
+  }
+}
+    </code></pre>
+
+  <div class="footer">
+    <p>Built with <a href="https://threejs.org" target="_blank">Three.js</a> · SpaTeX v0.1.0</p>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SPATEX — imported as ES module from source.
+       Vite resolves Three.js from node_modules automatically.
+       ══════════════════════════════════════════════════════════ -->
+  <script type="module">
+    import Spatex from '../src/index.js';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      Spatex.autoRender();
+    });
+  </script>
+
+</body>
+
+</html>
