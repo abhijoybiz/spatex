@@ -1,6 +1,6 @@
 {
   "name": "spatex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A CSS/JSON-style declarative language for 3D diagrams, designed for AI chat interfaces",
   "main": "dist/spatex.umd.js",
   "module": "dist/spatex.es.js",
